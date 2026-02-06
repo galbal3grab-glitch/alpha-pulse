@@ -1,47 +1,102 @@
-import time
 import requests
+import time
 from datetime import datetime, timezone
 
-# ================== CONFIG ==================
+# ===============================
+# CONFIG (غيرهم فقط)
+# ===============================
 BOT_TOKEN = "8319981273:AAFxxGWig3lHrVgi6FnK8hPkq3ume8HghSA"
 CHAT_ID = "5837332461"
-# ============================================
 
-TELEGRAM_URL = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-
-def send_message(text):
+# ===============================
+# TELEGRAM
+# ===============================
+def send_telegram(message: str):
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     payload = {
         "chat_id": CHAT_ID,
-        "text": text,
+        "text": message,
         "parse_mode": "HTML"
     }
     try:
-        r = requests.post(TELEGRAM_URL, json=payload, timeout=10)
-        print("Telegram response:", r.text)
+        r = requests.post(url, json=payload, timeout=10)
+        if r.status_code != 200:
+            print("Telegram error:", r.text)
     except Exception as e:
-        print("Telegram ERROR:", e)
+        print("Telegram exception:", e)
 
-def main():
-    start_time = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+# ===============================
+# STARTUP CONFIRMATION (مهم جدًا)
+# ===============================
+now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+send_telegram(
+    f"🚀 <b>Alpha Pulse LIVE</b>\n"
+    f"✅ Bot started successfully\n"
+    f"🕒 {now}"
+)
 
-    # 🔥 رسالة إجبارية عند التشغيل
-    send_message(
-        "🚀 <b>BOT STARTED SUCCESSFULLY</b>\n"
-        f"🕒 {start_time}\n"
-        "✅ Telegram connection OK\n"
-        "🔁 Test message every 60 seconds"
-    )
+# ===============================
+# BINANCE SPOT SCAN
+# ===============================
+BINANCE_24H = "https://api.binance.com/api/v3/ticker/24hr"
 
-    counter = 1
-    while True:
-        now = datetime.now(timezone.utc).strftime("%H:%M:%S UTC")
-        send_message(
-            f"🧪 <b>Heartbeat Test</b>\n"
-            f"⏱ Time: {now}\n"
-            f"🔢 Count: {counter}"
+def scan_binance():
+    try:
+        r = requests.get(BINANCE_24H, timeout=15)
+        data = r.json()
+    except Exception as e:
+        print("Binance error:", e)
+        return []
+
+    results = []
+
+    for coin in data:
+        symbol = coin.get("symbol", "")
+        if not symbol.endswith("USDT"):
+            continue
+
+        try:
+            price = float(coin["lastPrice"])
+            volume = float(coin["quoteVolume"])
+            change = float(coin["priceChangePercent"])
+        except:
+            continue
+
+        # فلترة خفيفة جدًا (اختبارية)
+        if volume > 5_000_000 and change > 5:
+            results.append({
+                "symbol": symbol,
+                "price": price,
+                "change": change,
+                "volume": volume
+            })
+
+    return results
+
+# ===============================
+# MAIN LOOP
+# ===============================
+sent_cache = set()
+
+while True:
+    coins = scan_binance()
+
+    for c in coins:
+        key = c["symbol"]
+        if key in sent_cache:
+            continue
+
+        sent_cache.add(key)
+
+        msg = (
+            f"🔥 <b>SPOT MOMENTUM</b>\n\n"
+            f"🪙 <b>{c['symbol']}</b>\n"
+            f"💵 Price: <code>{c['price']}</code>\n"
+            f"📈 Change 24h: <b>{c['change']}%</b>\n"
+            f"💧 Volume: <b>{int(c['volume']):,}</b>\n\n"
+            f"⚠️ مراقبة فقط — بدون دخول تلقائي"
         )
-        counter += 1
-        time.sleep(60)
 
-if __name__ == "__main__":
-    main()
+        send_telegram(msg)
+
+    time.sleep(120)
