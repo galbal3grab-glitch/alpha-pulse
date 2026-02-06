@@ -1,16 +1,16 @@
 import requests
 import time
-from datetime import datetime, timezone
 import os
+from datetime import datetime, timezone
 
 # ================= CONFIG =================
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 
 if not BOT_TOKEN or not CHAT_ID:
-    raise ValueError("❌ BOT_TOKEN or CHAT_ID is missing in Railway Variables")
+    raise ValueError("❌ BOT_TOKEN or CHAT_ID is missing")
 
-SCAN_INTERVAL = 300  # 5 دقائق
+SCAN_INTERVAL = 300  # 5 minutes
 
 EXCLUDED_SYMBOLS = ["BTC", "ETH", "SOL"]
 
@@ -18,33 +18,39 @@ MIN_VOLUME = 300_000
 MIN_CHANGE = 3
 MAX_CHANGE = 15
 
-BINANCE_ALPHA_URL = "https://api.binance.com/api/v3/ticker/24hr"
+BINANCE_URL = "https://api.binance.com/api/v3/ticker/24hr"
 
 # ================= TELEGRAM =================
-def send_telegram(message):
+def send_telegram(text):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     payload = {
         "chat_id": CHAT_ID,
-        "text": message,
+        "text": text,
         "parse_mode": "HTML",
         "disable_web_page_preview": True
     }
     try:
         r = requests.post(url, json=payload, timeout=10)
-        print("📨 Telegram status:", r.status_code)
+        r.raise_for_status()
     except Exception as e:
-        print("❌ Telegram error:", e)
+        print("Telegram error:", e)
 
-# ================= FILTER =================
+# ================= HELPERS =================
 def is_excluded(symbol):
-    return any(symbol.startswith(ex) for ex in EXCLUDED_SYMBOLS)
+    for ex in EXCLUDED_SYMBOLS:
+        if symbol.startswith(ex):
+            return True
+    return False
+
+def now_utc():
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
 # ================= SCAN =================
 def scan_market():
     try:
-        data = requests.get(BINANCE_ALPHA_URL, timeout=15).json()
+        data = requests.get(BINANCE_URL, timeout=15).json()
     except Exception as e:
-        print("❌ Binance error:", e)
+        print("Binance fetch error:", e)
         return []
 
     signals = []
@@ -75,46 +81,43 @@ def scan_market():
     return signals
 
 # ================= FORMAT =================
-def format_signal(c):
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-
-    entry = round(c["price"], 6)
+def format_signal(s):
+    entry = round(s["price"], 6)
     target1 = round(entry * 1.01, 6)
     target2 = round(entry * 1.02, 6)
     stop = round(entry * 0.99, 6)
 
     return f"""
-🚀 <b>ALPHA SIGNAL</b>
+🚨 <b>Alpha Signal Detected</b>
 
-🪙 <b>{c['symbol']}</b>
-💰 السعر: <b>{entry}</b>
-📊 التغير: <b>{round(c['change'],2)}%</b>
-💧 الفوليوم: <b>{round(c['volume'],0):,}$</b>
+🪙 <b>{s['symbol']}</b>
+🕒 {now_utc()}
 
-🎯 دخول: <b>{entry}</b>
-🎯 هدف 1: <b>{target1}</b>
-🎯 هدف 2: <b>{target2}</b>
-🛑 وقف: <b>{stop}</b>
+💰 Entry: <b>{entry}</b>
+🎯 TP1: {target1}
+🎯 TP2: {target2}
+🛑 SL: {stop}
 
-⏱ {now}
-"""
+📊 Volume: {int(s['volume']):,} $
+📈 Change: {round(s['change'],2)} %
+
+⚠️ Spot only – No financial advice
+""".strip()
 
 # ================= MAIN LOOP =================
-def main():
-    send_telegram("🟢 <b>SmartScanner Bot بدأ العمل بنجاح</b>\n⏳ مراقبة السوق الآن...")
+send_telegram("✅ <b>SmartScanner Bot is LIVE</b>\nBot started successfully.")
 
-    while True:
-        print("🔍 Scanning market...")
-        signals = scan_market()
+print("Bot started...")
 
-        if signals:
-            for s in signals:
-                send_telegram(format_signal(s))
-        else:
-            print("⚪ لا فرص حالياً")
+while True:
+    signals = scan_market()
 
-        time.sleep(SCAN_INTERVAL)
+    if not signals:
+        print(f"[{now_utc()}] No signals found")
+    else:
+        for s in signals:
+            msg = format_signal(s)
+            send_telegram(msg)
+            time.sleep(2)
 
-# ================= RUN =================
-if __name__ == "__main__":
-    main()
+    time.sleep(SCAN_INTERVAL)
