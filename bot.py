@@ -3,14 +3,11 @@ import time
 from datetime import datetime, timezone
 
 # ===============================
-# CONFIG (غيرهم فقط)
+# TELEGRAM CONFIG
 # ===============================
 BOT_TOKEN = "8319981273:AAFxxGWig3lHrVgi6FnK8hPkq3ume8HghSA"
 CHAT_ID = "5837332461"
 
-# ===============================
-# TELEGRAM
-# ===============================
 def send_telegram(message: str):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     payload = {
@@ -26,7 +23,7 @@ def send_telegram(message: str):
         print("Telegram exception:", e)
 
 # ===============================
-# STARTUP CONFIRMATION (مهم جدًا)
+# STARTUP MESSAGE
 # ===============================
 now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
 send_telegram(
@@ -36,21 +33,32 @@ send_telegram(
 )
 
 # ===============================
-# BINANCE SPOT SCAN
+# BINANCE API
 # ===============================
 BINANCE_24H = "https://api.binance.com/api/v3/ticker/24hr"
+
+# ===============================
+# FILTER SETTINGS (ذكية + مزعجة)
+# ===============================
+MIN_VOLUME = 1_000_000       # 1M USDT
+MIN_CHANGE = 2.5             # % change
+MIN_PRICE = 0.0001           # نتجنب الميمات الميتة
+SLEEP_TIME = 90              # كل دقيقة ونص
+
+sent_cache = {}
 
 def scan_binance():
     try:
         r = requests.get(BINANCE_24H, timeout=15)
-        data = r.json()
+        return r.json()
     except Exception as e:
         print("Binance error:", e)
         return []
 
-    results = []
+while True:
+    coins = scan_binance()
 
-    for coin in data:
+    for coin in coins:
         symbol = coin.get("symbol", "")
         if not symbol.endswith("USDT"):
             continue
@@ -62,41 +70,37 @@ def scan_binance():
         except:
             continue
 
-        # فلترة خفيفة جدًا (اختبارية)
-        if volume > 5_000_000 and change > 5:
-            results.append({
-                "symbol": symbol,
-                "price": price,
-                "change": change,
-                "volume": volume
-            })
-
-    return results
-
-# ===============================
-# MAIN LOOP
-# ===============================
-sent_cache = set()
-
-while True:
-    coins = scan_binance()
-
-    for c in coins:
-        key = c["symbol"]
-        if key in sent_cache:
+        # فلترة أولية
+        if price < MIN_PRICE:
+            continue
+        if volume < MIN_VOLUME:
+            continue
+        if change < MIN_CHANGE:
             continue
 
-        sent_cache.add(key)
+        # فلترة الحركة الوهمية
+        prev = sent_cache.get(symbol)
+        if prev:
+            if volume <= prev["volume"] and change <= prev["change"]:
+                continue
+
+        sent_cache[symbol] = {
+            "price": price,
+            "volume": volume,
+            "change": change
+        }
 
         msg = (
-            f"🔥 <b>SPOT MOMENTUM</b>\n\n"
-            f"🪙 <b>{c['symbol']}</b>\n"
-            f"💵 Price: <code>{c['price']}</code>\n"
-            f"📈 Change 24h: <b>{c['change']}%</b>\n"
-            f"💧 Volume: <b>{int(c['volume']):,}</b>\n\n"
-            f"⚠️ مراقبة فقط — بدون دخول تلقائي"
+            f"🔥 <b>SPOT MOMENTUM DETECTED</b>\n\n"
+            f"💎 <b>{symbol}</b>\n"
+            f"💰 Price: <code>{price}</code>\n"
+            f"📊 Change 24h: <b>{change}%</b>\n"
+            f"💧 Volume: <b>{int(volume):,}$</b>\n\n"
+            f"⚠️ زخم حقيقي + فوليوم داخل\n"
+            f"👀 راقب قبل الدخول"
         )
 
         send_telegram(msg)
+        time.sleep(2)
 
-    time.sleep(120)
+    time.sleep(SLEEP_TIME)
